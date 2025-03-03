@@ -1,51 +1,52 @@
 const express = require("express");
-const cors = require("cors");
 const { exec } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const cors = require("cors");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// Middleware
 app.use(express.json());
-app.use(express.static("public")); // Serves frontend files
+app.use(cors());
 
-// Update this path based on where yt-dlp is installed
-const ytDlpPath = "C:\\Users\\risha\\AppData\\Roaming\\Python\\Python313\\Scripts\\yt-dlp.exe";
+// Define yt-dlp path explicitly for Render
+const ytDlpPath = "/usr/local/bin/yt-dlp";
+const downloadsDir = path.join(__dirname, "downloads");
 
-// Check if yt-dlp exists
-if (!fs.existsSync(ytDlpPath)) {
-    console.error("❌ ERROR: yt-dlp.exe not found! Check the path in server.js.");
-    process.exit(1); // Stop the server
+// Ensure downloads directory exists
+if (!fs.existsSync(downloadsDir)) {
+    fs.mkdirSync(downloadsDir);
 }
 
 app.post("/download", (req, res) => {
-    const { url } = req.body;
-    if (!url) {
-        console.error("❌ ERROR: No URL provided");
-        return res.status(400).json({ error: "YouTube URL is required" });
+    const videoUrl = req.body.url;
+    if (!videoUrl) {
+        return res.status(400).json({ error: "No video URL provided" });
     }
 
-    console.log(`✅ Received URL: ${url}`);
+    const outputPath = path.join(downloadsDir, "video.mp4");
 
-    const outputFileName = "video.mp4"; // Name of downloaded file
-    const outputPath = path.join(__dirname, "public", outputFileName);
-
-    console.log(`📁 Output path: ${outputPath}`);
-
-    const command = `"${ytDlpPath}" -f best -o "${outputPath}" "${url}"`;
-
-    console.log(`🛠 Running command: ${command}`);
-
-    exec(command, (error, stdout, stderr) => {
+    // Execute yt-dlp command
+    exec(`${ytDlpPath} -f best -o "${outputPath}" "${videoUrl}"`, (error, stdout, stderr) => {
         if (error) {
-            console.error(`❌ Download failed: ${stderr}`);
-            return res.status(500).json({ error: "Failed to download video. Check server logs." });
+            console.error(`Error downloading video: ${error.message}`);
+            return res.status(500).json({ error: "Failed to download video" });
         }
-        console.log(`✅ Download success! File saved to: ${outputPath}`);
-        res.json({ downloadLink: `/${outputFileName}` });
+
+        // Send the downloaded file to the client
+        res.download(outputPath, "video.mp4", (err) => {
+            if (err) {
+                console.error(`Error sending file: ${err.message}`);
+            }
+            // Delete the file after sending to save space
+            fs.unlinkSync(outputPath);
+        });
     });
 });
 
-app.listen(PORT, () => console.log(`🚀 Server running at http://localhost:${PORT}`));
+// Start the server
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
